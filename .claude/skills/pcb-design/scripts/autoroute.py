@@ -15,13 +15,15 @@ What it does (references/routing.md):
      pass through it, and its net counts as joined through the fill
   3. tries seeds 0, 1, ... one after another (the router is deterministic per
      seed, and seeds differ by one or two connections on a dense board),
-     stopping at the first that KiCad judges complete
+     stopping at the first that KiCad judges complete, plane nets included
   4. judges every result with KiCad, not the router's own count: zones
-     refilled, then `kicad-cli pcb drc`; signal connections left open (plane
-     nets are joined by their pours after the fill and don't count) and
-     errors the route added (any already on the board before routing, such as
-     locked copper inside a routing keepout, don't count)
-  5. keeps the best (clean first, then fewest open, then fewest vias), writes
+     refilled, then `kicad-cli pcb drc`; signal connections left open,
+     plane-net connections left open (counted apart: stitching may still join
+     them, but not where there's no room for a via), and errors the route
+     added (any already on the board before routing, such as locked copper
+     inside a routing keepout, don't count)
+  5. keeps the best (clean first, then fewest signal open, then fewest plane
+     open, then fewest vias), writes
      it over the board, and records every run in route/autoroute.json
 
 Every run is governed (routing.md, "Running the autorouter without hurting
@@ -113,10 +115,14 @@ def judge(pcb: Path, pro: Path, plane_nets: set[str]) -> dict:
         d = json.loads(out.read_text())
     def plane(u):
         return all(any(f"[{n}]" in i["description"] for n in plane_nets) for i in u["items"])
-    opens = [" / ".join(i["description"] for i in u["items"]) for u in d.get("unconnected_items", []) if not plane(u)]
+    unconnected = d.get("unconnected_items", [])
+    opens = [" / ".join(i["description"] for i in u["items"]) for u in unconnected if not plane(u)]
+    # Plane-net opens: stitching can still join some, but not where there's no room for a via
+    # (easy2350, C4/C17 grounds joined only to each other), so a seed without them is better.
+    plane_opens = [" / ".join(i["description"] for i in u["items"]) for u in unconnected if plane(u)]
     errors = collections.Counter((v["type"], v["description"], tuple(sorted(i["description"] for i in v["items"])))
                                  for v in d["violations"])
-    return {"opens": opens, "errors": errors}
+    return {"opens": opens, "plane_opens": plane_opens, "errors": errors}
 
 
 def main() -> int:
@@ -171,27 +177,31 @@ def main() -> int:
         verdict = judge(routed, pro, plane_nets)
         new = verdict["errors"] - before
         vias = len(re.findall(r"^\s*\(via\b", routed.read_text(), re.M))
-        res = {"seed": seed, "open": len(verdict["opens"]), "new_errors": sum(new.values()), "vias": vias,
+        res = {"seed": seed, "open": len(verdict["opens"]), "plane_open": len(verdict["plane_opens"]),
+               "new_errors": sum(new.values()), "vias": vias,
                "router": (r.stdout + r.stderr).strip().splitlines()[-1] if (r.stdout + r.stderr).strip() else "",
                "open_items": verdict["opens"], "error_items": [" | ".join(k[2]) + f" ({k[0]})" for k in new]}
         results.append(res)
-        print(f"  seed {seed}: {res['open']} signal open, {res['new_errors']} new errors, {vias} vias "
+        print(f"  seed {seed}: {res['open']} signal open, {res['plane_open']} plane open, "
+              f"{res['new_errors']} new errors, {vias} vias "
               f"({res['router']})", flush=True)
         for o in verdict["opens"]:
             print(f"    open: {o}")
+        for o in verdict["plane_opens"]:
+            print(f"    plane open: {o}")
         for e in res["error_items"]:
             print(f"    error: {e}")
-        if res["open"] == 0 and res["new_errors"] == 0:
+        if res["open"] == 0 and res["plane_open"] == 0 and res["new_errors"] == 0:
             break
     if not results:
         sys.exit("autoroute: no run produced a board")
-    best = min(results, key=lambda r: (r["new_errors"] > 0, r["open"], r["new_errors"], r["vias"]))
+    best = min(results, key=lambda r: (r["new_errors"] > 0, r["open"], r["plane_open"], r["new_errors"], r["vias"]))
     shutil.copy(out / f"s{best['seed']}.kicad_pcb", pcb)
     pcbnew_step(REFILL, str(pcb))
     (out / "autoroute.json").write_text(json.dumps({"options": options, "best": best["seed"], "runs": results},
                                                    indent=2) + "\n")
-    print(f"  kept seed {best['seed']}: {best['open']} signal open, {best['new_errors']} new errors, "
-          f"{best['vias']} vias; zones refilled")
+    print(f"  kept seed {best['seed']}: {best['open']} signal open, {best['plane_open']} plane open, "
+          f"{best['new_errors']} new errors, {best['vias']} vias; zones refilled")
     return 0 if best["open"] == 0 and best["new_errors"] == 0 else 1
 
 

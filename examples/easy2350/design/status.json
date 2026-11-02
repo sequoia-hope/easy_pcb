@@ -1,15 +1,15 @@
 {
   "board": "easy2350",
   "phase": "7 routing",
-  "doing": "Second layout review (2026-11-01) fixes: the reference's power tracks now come across as zones too (DVDD/FB pins all on reference copper); via rings kept off SMD pads; VREG_AVDD kept on top. Re-routed on ultraroute 5064384: tracks now end inside their pads (pad_joints.py passes). Waiting on ultraroute to join the reference zones' islands with vias (7 isolated +1V1 pieces now). Then re-route, review, gates 7-10.",
+  "doing": "Re-routed on ultraroute 4ed8d5d (reference zone islands joined with vias): DRC 0 errors, 0 unconnected, 0 warnings beyond footprint-library mismatches; pad_joints passes. Open for review A1: of the four B.Cu 1V1 spokes only pin 50's has vias at both ends, so pins 6/23/39 still draw through about 21 mm of router wire. Asked ultraroute to join strip islands at both ends. Then review, gates 7-10.",
   "needs_user": [],
   "checks": {
-    "DRC": "0 errors, 0 unconnected, parity 0; warnings: 55 lib_footprint_mismatch, 7 isolated_copper (+1V1 reference zones the router has yet to join), 3 slivers (to place after the next route)",
+    "DRC": "0 errors, 0 unconnected, parity 0; warnings: 55 lib_footprint_mismatch only",
     "schematic parity": "0 differences (sync_check with BOM and CPL: PASS, 58/58/54/54)",
     "nets_check --rules --routed": "PASS, 0 errors",
     "silk_check": "PASS, 0 errors (now also footprint silk over vias)",
     "locks": "16 footprints locked, no locked copper",
-    "pad_joints": "PASS: 205 SMD pads, 0 thin joints (ultraroute 5064384)"
+    "pad_joints": "PASS: 205 SMD pads, 0 thin joints (ultraroute 4ed8d5d)"
   },
   "gates_passed": [
     0,
@@ -70,7 +70,7 @@
       "href": "hw/easy2350/a/fab/"
     }
   ],
-  "updated": "2026-10-31",
+  "updated": "2026-11-01",
   "gates": {
     "7": {
       "stale_because": "review-layout 2 (2026-11-01): 1V1/FB reference copper not joined (A1), thin pad joints (A2); router features requested"
